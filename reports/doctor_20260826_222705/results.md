@@ -1,0 +1,26 @@
+# Pipeline Results
+
+| Metric | Value |
+|---|---:|
+| `step` | python_batch_cleaning |
+| `run_id` | d3405e3c-f888-4ac7-b1b1-76bf569e77ad |
+| `raw_loaded` | 8248 |
+| `initial_valid_count` | 0 |
+| `initial_invalid_count` | 8248 |
+| `raw_valid_count` | 0 |
+| `raw_invalid_count` | 8248 |
+| `valid_count` | 0 |
+| `corrected_count` | 0 |
+| `quarantine_count` | 8248 |
+| `inserted_count` | 0 |
+| `updated_count` | 8248 |
+| `unchanged_count` | 0 |
+| `error_case_counts` | {"SCHEMA_REQUIRED_FIELD": 8248} |
+| `cleaning_applied` | True |
+| `elapsed_seconds` | 19.63085 |
+| `throughput_rows_per_second` | 420.16 |
+| `reconciliation_ok` | True |
+| `cleaning_input` | orders_quarantine_only |
+| `cleaned_quarantine_count` | 8248 |
+| `classification_order` | raw_validated_and_raw_quarantined_then_clean_quarantine |
+| `next_stage` | metrics |

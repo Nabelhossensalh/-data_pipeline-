@@ -1,0 +1,35 @@
+{
+  "run_id": "d3405e3c-f888-4ac7-b1b1-76bf569e77ad",
+  "source_file": "C:\\Users\\PC\\Desktop\\big_data_progect\\UsedCarsSA_Unclean_EN.csv",
+  "file_name": "UsedCarsSA_Unclean_EN.csv",
+  "file_size_bytes": 1932182,
+  "file_size_mb": 1.842672,
+  "engine_used": "python_batch",
+  "routing_reason": "file_size_mb=1.84 <= threshold_mb=200.00",
+  "header_columns": [
+    "Link",
+    "Make",
+    "Type",
+    "Year",
+    "Origin",
+    "Color",
+    "Options",
+    "Engine_Size",
+    "Fuel_Type",
+    "Gear_Type",
+    "Condition",
+    "Mileage",
+    "Region",
+    "Price",
+    "Negotiable"
+  ],
+  "header_column_count": 15,
+  "missing_required_groups": [
+    "order_id",
+    "customer_id",
+    "items"
+  ],
+  "header_check": "needs_mapping_or_review",
+  "delimiter": ",",
+  "discovered_at": "2026-08-26T19:27:05.922957+00:00"
+}

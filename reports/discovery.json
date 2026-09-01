@@ -1,0 +1,33 @@
+{
+  "run_id": "e5b01d94-3850-49e3-a8b3-488fd5f9fe46",
+  "source_file": "C:\\Users\\PC\\Desktop\\big_data_progect\\orders_huge_mixed_quality.csv",
+  "file_name": "orders_huge_mixed_quality.csv",
+  "file_size_bytes": 13264821500,
+  "file_size_mb": 12650.319576,
+  "engine_used": "pyspark",
+  "routing_reason": "file_size_mb=12650.32 > threshold_mb=200.00",
+  "header_columns": [
+    "order_id",
+    "order_date",
+    "status",
+    "customer_id",
+    "customer_name",
+    "customer_phone",
+    "customer_email",
+    "city",
+    "district",
+    "delivery_type",
+    "delivery_cost",
+    "payment_method",
+    "payment_status",
+    "payment_amount",
+    "currency",
+    "total_amount",
+    "items_json"
+  ],
+  "header_column_count": 17,
+  "missing_required_groups": [],
+  "header_check": "pass",
+  "delimiter": ",",
+  "discovered_at": "2026-08-23T19:54:03.933787+00:00"
+}
