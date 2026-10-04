@@ -90,11 +90,11 @@ class MongoStore:
             "required": ["order_id", "order_date", "status", "customer", "items", "payment", "total_amount", "quality_status"],
             "properties": {
                 "order_id": {"bsonType": "string", "minLength": 1},
-                "order_date": {"bsonType": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+                "order_date": {"bsonType": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?)?$"},
                 "status": {"enum": ["قيد الانتظار", "مؤكد", "قيد الشحن", "تم التسليم", "مرتجع", "ملغي"]},
                 "customer": {"bsonType": "object", "required": ["customer_id", "phone", "email", "address"], "properties": {
                     "customer_id": {"bsonType": "string", "minLength": 1},
-                    "phone": {"bsonType": "string", "pattern": "^967(70|71|73|77)[0-9]{7}$"},
+                    "phone": {"bsonType": "string", "pattern": "^(?:967)?(70|71|73|77)[0-9]{7}$"},
                     "email": {"bsonType": "string", "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"},
                     "address": {"bsonType": "object", "required": ["city", "district"]},
                 }},

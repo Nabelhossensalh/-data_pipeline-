@@ -61,6 +61,9 @@ def test_batch_replay_is_idempotent(tmp_path):
 def test_raw_then_cleaning_updates_final_state(tmp_path):
     source = tmp_path / "raw_then_clean.csv"
     raw = canonical_raw()
+    deferred = canonical_raw()
+    deferred["order_id"] = "ORD-3"
+    deferred["customer_email"] = "buyer@@example.com"
     quarantined = canonical_raw()
     quarantined["order_id"] = "ORD-2"
     quarantined["items_json"] = ""
@@ -73,26 +76,31 @@ def test_raw_then_cleaning_updates_final_state(tmp_path):
         writer = csv.DictWriter(handle, fieldnames=headers)
         writer.writeheader()
         writer.writerow({header: raw.get(header, "") for header in headers})
+        writer.writerow({header: deferred.get(header, "") for header in headers})
         writer.writerow({header: quarantined.get(header, "") for header in headers})
     store = JsonStore(tmp_path / "sequence_store.json")
     raw_result = load_csv_streaming(source, store, run_id="sequence-run", batch_size=1, reports_dir=tmp_path / "reports")
-    assert raw_result["raw_valid_count"] == 1
+    assert raw_result["raw_valid_count"] == 2
     assert raw_result["raw_invalid_count"] == 1
     assert raw_result["cleaning_applied"] is False
-    assert len(store.data["orders_validated"]) == 1
+    assert len(store.data["orders_validated"]) == 2
     assert store.data["orders_validated"][0]["quality_status"] == "raw_validated"
     assert store.data["orders_validated"][0]["cleaning_applied"] is False
     assert len(store.data["orders_quarantine"]) == 1
-    final = clean_after_raw_batch(store, "sequence-run", reports_dir=tmp_path / "reports", raw_valid_count=1, raw_invalid_count=1)
+    final = clean_after_raw_batch(store, "sequence-run", reports_dir=tmp_path / "reports", raw_valid_count=2, raw_invalid_count=1)
     assert final["cleaning_applied"] is True
-    assert final["cleaning_input"] == "orders_quarantine_only"
+    assert final["cleaning_input"] == "orders_raw_by_run_id"
     assert final["valid_count"] == 1
-    assert final["corrected_count"] == 0
+    assert final["corrected_count"] == 1
     assert final["quarantine_count"] == 1
-    assert len(store.data["orders_validated"]) == 1
+    assert len(store.data["orders_validated"]) == 2
     original = next(row for row in store.data["orders_validated"] if row["order_id"] == "ORD-1")
-    assert original["cleaning_applied"] is False
+    assert original["cleaning_applied"] is True
+    corrected = next(row for row in store.data["orders_validated"] if row["order_id"] == "ORD-3")
+    assert corrected["quality_status"] == "corrected"
+    assert corrected["customer"]["email"] == "buyer@example.com"
     assert len(store.data["orders_quarantine"]) == 1
+    assert store.data["orders_quarantine"][0]["order_id"] == "ORD-2"
     assert store.data["orders_quarantine"][0]["cleaning_applied"] is True
     assert any(code in store.data["orders_quarantine"][0]["error_codes"] for code in ("SCHEMA_REQUIRED_FIELD", "EMPTY_ITEMS"))
 
@@ -171,6 +179,52 @@ def test_dirty_record_is_cleaned_last_then_quarantined():
     assert result["final_document"]["cleaning_applied"] is True
     assert result["final_document"]["quality_status"] == "quarantined"
     assert "INVALID_EMAIL" in result["final_document"]["error_codes"]
+
+
+def test_expected_safe_format_anomalies_are_corrected():
+    raw = canonical_raw()
+    raw["order_date"] = "14-06-2026 18:01:00"
+    raw["customer_phone"] = "+967 77 123 4567"
+    raw["delivery_cost"] = "٢٠٠٠٫٠"
+    raw["total_amount"] = "3,250.00"
+    raw["status"] = "  مؤكد  "
+
+    first_pass = classify_raw_without_cleaning(raw)
+    final = classify_raw_document(raw)["final_document"]
+
+    assert first_pass["raw_valid"] is True
+    assert final["quality_status"] == "corrected"
+    assert final["order_date"] == "2026-06-14"
+    assert final["customer"]["phone"] == "967771234567"
+    assert final["delivery"]["cost"] == 2000.0
+    assert final["total_amount"] == 3250.0
+    assert final["status"] == "مؤكد"
+
+
+def test_missing_item_sku_is_quarantined():
+    raw = canonical_raw()
+    item = json.loads(raw["items_json"])[0]
+    del item["sku"]
+    raw["items_json"] = json.dumps([item], ensure_ascii=False)
+
+    first_pass = classify_raw_without_cleaning(raw)
+    final = classify_raw_document(raw)["final_document"]
+
+    assert first_pass["raw_invalid"] is True
+    assert "MISSING_ITEM_SKU" in first_pass["quarantine_document"]["error_codes"]
+    assert final["quality_status"] == "quarantined"
+    assert "MISSING_ITEM_SKU" in final["error_codes"]
+
+
+def test_negative_quantity_has_specific_quarantine_reason():
+    raw = canonical_raw()
+    item = json.loads(raw["items_json"])[0]
+    item["qty"] = -1
+    raw["items_json"] = json.dumps([item], ensure_ascii=False)
+
+    result = classify_raw_without_cleaning(raw)
+
+    assert result["quarantine_document"]["error_code"] == "NEGATIVE_QUANTITY"
 
 
 def test_dynamic_discovery_supports_small_semicolon_alias_file(tmp_path):

@@ -1192,9 +1192,7 @@ def clean_after_raw_batch(
     raw_invalid_count: int | None = None,
 ) -> dict[str, Any]:
     """
-    Clean ONLY rows that were classified as raw-invalid.
-
-    Raw-valid rows have already been accepted and remain valid.
+    Transform every raw row for this run after the raw classification pass.
 
     Cleaning happens AFTER:
         raw schema validation
@@ -1235,6 +1233,53 @@ def clean_after_raw_batch(
                 }
             )
         )
+
+    if hasattr(store, "data"):
+        raw_rows = [
+            row
+            for row in store.data.get("orders_raw", [])
+            if row.get("run_id") == run_id
+        ]
+        initial_validated_rows = [
+            row
+            for row in store.data.get("orders_validated", [])
+            if row.get("run_id") == run_id
+            and row.get("quality_status") == "raw_validated"
+        ]
+    else:
+        raw_rows = list(
+            store.raw.find({"run_id": run_id}, {"_id": 0})
+        )
+        initial_validated_rows = list(
+            store.validated.find(
+                {"run_id": run_id, "quality_status": "raw_validated"},
+                {"_id": 0},
+            )
+        )
+
+    # Repeated calls with the same run_id must not turn replayed source rows
+    # into duplicates. Preserve distinct source rows with genuinely repeated IDs.
+    unique_raw_rows = {}
+    for index, row in enumerate(raw_rows):
+        source_row_number = row.get("source_row_number")
+        key = source_row_number if source_row_number is not None else ("missing", index)
+        unique_raw_rows[key] = row
+    raw_rows = list(unique_raw_rows.values())
+
+    quarantine_by_row = {
+        row.get("source_row_number"): row
+        for row in quarantine_rows
+    }
+    validated_by_row = {
+        row.get("source_row_number"): row
+        for row in initial_validated_rows
+    }
+
+    if raw_valid_count is not None and raw_invalid_count is not None:
+        if raw_valid_count + raw_invalid_count and not raw_rows:
+            raise RuntimeError(
+                f"No raw source rows found for run_id={run_id}"
+            )
 
     # ========================================================
     # IMPORTANT FIX
@@ -1298,32 +1343,23 @@ def clean_after_raw_batch(
         first_pass_invalid
     )
 
-    # Raw-valid documents were already accepted.
-    metrics.valid_count = (
-        first_pass_valid
-    )
+    metrics.valid_count = 0
 
     # ========================================================
-    # Clean quarantined records
+    # Clean all raw records for this run
     # ========================================================
 
-    for quarantined in quarantine_rows:
+    order_id_counts = Counter()
+    for row in raw_rows:
+        canonical = canonicalize_raw_fields(row)
+        order_id = str(canonical.get("order_id") or "").strip()
+        if order_id:
+            order_id_counts[order_id] += 1
 
-        raw = (
-            _quarantine_original_document(
-                quarantined
-            )
-        )
-
-        is_duplicate = (
-            "DUPLICATE_ORDER_ID"
-            in set(
-                quarantined.get(
-                    "error_codes",
-                    [],
-                )
-            )
-        )
+    for raw in raw_rows:
+        canonical = canonicalize_raw_fields(raw)
+        order_id = str(canonical.get("order_id") or "").strip()
+        is_duplicate = bool(order_id and order_id_counts[order_id] > 1)
 
         item = classify_raw_document(
             raw,
@@ -1338,45 +1374,36 @@ def clean_after_raw_batch(
         # Preserve first-pass classification
         # ----------------------------------------------------
 
-        final[
-            "initial_classification"
-        ] = "invalid"
-
-        final[
-            "initial_error_codes"
-        ] = list(
-            quarantined.get(
-                "error_codes",
-                [],
-            )
+        initial_quarantine = quarantine_by_row.get(
+            raw.get("source_row_number"),
+            {},
+        )
+        initial_validated = validated_by_row.get(
+            raw.get("source_row_number"),
+            {},
+        )
+        initial_errors = list(initial_quarantine.get("error_codes", []))
+        initial_error_details = deepcopy(
+            initial_quarantine.get("error_details", [])
+        )
+        final["initial_classification"] = (
+            "invalid" if initial_quarantine else "valid"
+        )
+        final["initial_error_codes"] = initial_errors
+        final["initial_error_details"] = initial_error_details
+        final["raw_error_codes"] = initial_errors
+        final["raw_error_details"] = deepcopy(initial_error_details)
+        final["deferred_corrections"] = deepcopy(
+            initial_validated.get("deferred_corrections", [])
         )
 
-        final[
-            "initial_error_details"
-        ] = deepcopy(
-            quarantined.get(
-                "error_details",
-                [],
+        if final.get("quality_status") == "quarantined" and initial_quarantine:
+            final["error_codes"] = initial_errors
+            final["error_code"] = initial_quarantine.get(
+                "error_code",
+                initial_errors[0] if initial_errors else "UNKNOWN_ERROR",
             )
-        )
-
-        final[
-            "raw_error_codes"
-        ] = list(
-            quarantined.get(
-                "error_codes",
-                [],
-            )
-        )
-
-        final[
-            "raw_error_details"
-        ] = deepcopy(
-            quarantined.get(
-                "error_details",
-                [],
-            )
-        )
+            final["error_details"] = initial_error_details
 
         # ----------------------------------------------------
         # Cleaning metadata
@@ -1435,15 +1462,10 @@ def clean_after_raw_batch(
         else:
 
             metrics.quarantine_count += 1
-
-            for code in final.get(
-                "error_codes",
-                [],
-            ):
-
-                metrics.add_error(
-                    code
-                )
+            metrics.add_error(
+                final.get("error_code")
+                or (final.get("error_codes") or ["UNKNOWN_ERROR"])[0]
+            )
 
             outcome = (
                 store.upsert_quarantine(
@@ -1470,12 +1492,23 @@ def clean_after_raw_batch(
         + first_pass_invalid
     )
 
-    if metrics.raw_loaded != expected_input:
+    if metrics.raw_loaded != expected_input or len(raw_rows) != expected_input:
 
         raise RuntimeError(
             "Cleaning input reconciliation failed: "
             f"raw_loaded={metrics.raw_loaded}, "
-            f"expected={expected_input}"
+            f"expected={expected_input}, raw_rows={len(raw_rows)}"
+        )
+
+    final_total = (
+        metrics.valid_count
+        + metrics.corrected_count
+        + metrics.quarantine_count
+    )
+    if final_total != expected_input:
+        raise RuntimeError(
+            "Final quality reconciliation failed: "
+            f"final_total={final_total}, expected={expected_input}"
         )
 
     # ========================================================
@@ -1491,15 +1524,17 @@ def clean_after_raw_batch(
             "cleaning_applied": True,
 
             "cleaning_input": (
-                "orders_quarantine_only"
+                "orders_raw_by_run_id"
             ),
 
             "cleaned_quarantine_count": (
                 len(quarantine_rows)
             ),
 
+            "cleaned_input_count": len(raw_rows),
+
             "classification_order": (
-                "raw_validated_and_raw_quarantined_then_clean_quarantine"
+                "raw_classification_then_full_transform"
             ),
 
             "next_stage": "metrics",

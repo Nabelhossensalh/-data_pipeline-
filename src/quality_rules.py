@@ -155,6 +155,8 @@ def _date(value: Any) -> tuple[str | None, str | None]:
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%dT%H:%M:%S.%f",
         "%Y-%m-%d %H:%M:%S",
+        "%d-%m-%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
         "%Y/%m/%d",
         "%d/%m/%Y",
         "%d-%m-%Y",
@@ -163,7 +165,10 @@ def _date(value: Any) -> tuple[str | None, str | None]:
         try:
             parsed = datetime.strptime(text, fmt)
             result = parsed.strftime("%Y-%m-%d")
-            return result, None if str(original).strip() == result else "DATE_ISO8601"
+            canonical_timestamp = fmt in {"%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"}
+            if canonical_timestamp:
+                return str(original).strip(), None
+            return result, None if str(original).strip() == result or canonical_timestamp else "DATE_ISO8601"
         except ValueError:
             continue
     return None, "INVALID_IMPOSSIBLE_DATE"
@@ -185,9 +190,7 @@ def _phone(value: Any) -> tuple[str | None, str | None]:
     result = re.sub(r"[^0-9]", "", _digits(original))
     if result.startswith("00"):
         result = result[2:]
-    if result.startswith("7") and len(result) == 9:
-        result = "967" + result
-    if not re.fullmatch(r"967(70|71|73|77)\d{7}", result):
+    if not re.fullmatch(r"(?:967)?(70|71|73|77)\d{7}", result):
         return None, "INVALID_PHONE"
     return result, None if result == original else "YEMEN_PHONE_NORMALISED"
 
@@ -227,7 +230,14 @@ def _items(value: Any, errors: list[dict[str, Any]], corrections: list[dict[str,
         price, price_rule = _number(item.get("unit_price", item.get("price")))
         total, total_rule = _number(item.get("total", item.get("line_total")))
         if qty is None or price is None:
-            _error(errors, price_rule or "UNKNOWN_PRICE", f"items[{index}]", "Quantity or price cannot be inferred")
+            error_code = qty_rule or price_rule or "UNKNOWN_PRICE"
+            if qty_rule == "AMBIGUOUS_NEGATIVE_VALUE":
+                error_code = "NEGATIVE_QUANTITY"
+            _error(errors, error_code, f"items[{index}]", "Quantity or price cannot be inferred")
+            continue
+        sku = _text(item.get("sku"))
+        if not sku:
+            _error(errors, "MISSING_ITEM_SKU", f"items[{index}].sku", "Product SKU is required")
             continue
         if total is None:
             total = qty * price
@@ -292,6 +302,8 @@ def clean_raw_document(raw: dict[str, Any], is_duplicate: bool = False) -> dict[
     original_total, total_rule = _number(source.get("total_amount"))
     if total_rule in {"UNKNOWN_PRICE", "AMBIGUOUS_NEGATIVE_VALUE"}:
         _error(errors, total_rule, "total_amount", "Total is not safely numeric")
+    elif total_rule:
+        _correction(corrections, "total_amount", source.get("total_amount"), original_total, total_rule)
     if parsed_items is not None and not errors:
         calculated_total = round(sum(float(item["total"]) for item in parsed_items) + float(delivery_cost or 0), 2)
         if original_total is None or round(original_total, 2) != calculated_total:
@@ -418,7 +430,7 @@ def _raw_number(value: Any) -> tuple[float | None, str | None]:
         return (number, None) if number >= 0 else (None, "AMBIGUOUS_NEGATIVE_VALUE")
 
     original = str(value)
-    stripped = original.strip()
+    stripped = _digits(original.strip())
     if not stripped:
         return None, "UNKNOWN_PRICE"
     if stripped in {"unknown", "UNKNOWN", "n/a", "N/A", "null", "None", "-"}:
@@ -445,6 +457,8 @@ def _raw_date(value: Any) -> tuple[bool, str | None]:
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%dT%H:%M:%S.%f",
         "%Y-%m-%d %H:%M:%S",
+        "%d-%m-%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
         "%Y/%m/%d",
         "%d/%m/%Y",
         "%d-%m-%Y",
@@ -454,7 +468,8 @@ def _raw_date(value: Any) -> tuple[bool, str | None]:
         try:
             parsed = datetime.strptime(normalized, fmt)
             canonical = parsed.strftime("%Y-%m-%d")
-            return True, None if original == canonical else "DATE_ISO8601"
+            canonical_timestamp = fmt in {"%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"}
+            return True, None if original == canonical or canonical_timestamp else "DATE_ISO8601"
         except ValueError:
             continue
     return False, "INVALID_IMPOSSIBLE_DATE"
@@ -469,7 +484,7 @@ def _raw_phone(value: Any) -> tuple[bool, str | None]:
     if re.fullmatch(r"967(70|71|73|77)[0-9]{7}", digits):
         return True, None if digits == original else "YEMEN_PHONE_NORMALISED"
     if re.fullmatch(r"(70|71|73|77)[0-9]{7}", digits):
-        return True, "YEMEN_PHONE_NORMALISED"
+        return True, None if digits == original else "YEMEN_PHONE_NORMALISED"
     return False, "INVALID_PHONE"
 
 
@@ -516,6 +531,8 @@ def _raw_items(value: Any) -> tuple[list[dict[str, Any]] | None, list[dict[str, 
         if not isinstance(item, dict):
             _error(hard, "CORRUPTED_ITEMS_JSON", "items_json", f"Item {index} is not an object")
             continue
+        if not _text(item.get("sku")):
+            _error(hard, "MISSING_ITEM_SKU", f"items[{index}].sku", "Product SKU is missing")
         for key, fallback, field in (
             ("qty", "quantity", f"items[{index}].qty"),
             ("unit_price", "price", f"items[{index}].unit_price"),
@@ -523,7 +540,8 @@ def _raw_items(value: Any) -> tuple[list[dict[str, Any]] | None, list[dict[str, 
         ):
             number, rule = _raw_number(item.get(key, item.get(fallback)))
             if rule in {"UNKNOWN_PRICE", "AMBIGUOUS_NEGATIVE_VALUE"}:
-                _error(hard, rule, field, "Value is missing, negative, or cannot be inferred safely")
+                error_code = "NEGATIVE_QUANTITY" if key == "qty" and rule == "AMBIGUOUS_NEGATIVE_VALUE" else rule
+                _error(hard, error_code, field, "Value is missing, negative, or cannot be inferred safely")
             elif rule:
                 deferred.append({
                     "field": field,
