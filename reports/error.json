@@ -1,7 +1,7 @@
 {
-  "step": "cleaning",
+  "step": "quality",
   "input": null,
-  "error_type": "ServerSelectionTimeoutError",
-  "error_message": "127.0.0.1:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 10.0s, Topology Description: <TopologyDescription id: 6a8c93e149e6ae0233a4b3b1, topology_type: Unknown, servers: [<ServerDescription ('127.0.0.1', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('127.0.0.1:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>",
+  "error_type": "ConnectionRefusedError",
+  "error_message": "[WinError 10061] No connection could be made because the target machine actively refused it",
   "recovery": "Check the reported resource, path, schema, MongoDB, Java, or Connector requirement; no partial JSON result is treated as successful."
 }

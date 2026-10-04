@@ -1,0 +1,33 @@
+{
+  "run_id": "cbb8dbdd-2ca3-4015-af3d-0ece4d9620bb",
+  "source_file": "C:\\Users\\PC\\Desktop\\big_data_progect\\01_student_test_small.csv",
+  "file_name": "01_student_test_small.csv",
+  "file_size_bytes": 9024705,
+  "file_size_mb": 8.606629,
+  "engine_used": "python_batch",
+  "routing_reason": "file_size_mb=8.61 <= threshold_mb=200.00",
+  "header_columns": [
+    "order_id",
+    "order_date",
+    "status",
+    "customer_id",
+    "customer_name",
+    "customer_phone",
+    "customer_email",
+    "city",
+    "district",
+    "delivery_type",
+    "delivery_cost",
+    "payment_method",
+    "payment_status",
+    "payment_amount",
+    "currency",
+    "total_amount",
+    "items_json"
+  ],
+  "header_column_count": 17,
+  "missing_required_groups": [],
+  "header_check": "pass",
+  "delimiter": ",",
+  "discovered_at": "2026-10-04T18:54:28.448672+00:00"
+}

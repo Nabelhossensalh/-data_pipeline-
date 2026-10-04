@@ -16,7 +16,8 @@ Write-Host "=== ONE FILE HYBRID PIPELINE ==="
 Write-Host "Project: $ProjectRoot"
 
 # Set the CSV path here. Change only this line for another file.
-$InputFile = "C:\Users\PC\Desktop\big_data_progect\UsedCarsSA_Unclean_EN.csv"
+# $InputFile = "C:\Users\PC\Desktop\big_data_progect\UsedCarsSA_Unclean_EN.csv"
+$InputFile="C:\Users\PC\Desktop\big_data_progect\01_student_test_small.csv"
 $InputPath = [System.IO.Path]::GetFullPath($InputFile)
 
 if (-not (Test-Path -LiteralPath $InputPath -PathType Leaf)) {
